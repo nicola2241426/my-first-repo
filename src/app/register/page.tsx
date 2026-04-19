@@ -6,7 +6,10 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Turnstile } from '@/components/turnstile';
 import { ArrowLeft, UserPlus, Loader2, CheckCircle2, AlertCircle, User, LogOut } from 'lucide-react';
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -18,6 +21,7 @@ export default function RegisterPage() {
   const [success, setSuccess] = useState(false);
   const [user, setUser] = useState<{ id: number; username: string } | null>(null);
   const [registeredUser, setRegisteredUser] = useState<{ id: number; username: string } | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   // 检查用户登录状态
   useEffect(() => {
@@ -70,6 +74,11 @@ export default function RegisterPage() {
       return;
     }
 
+    if (!turnstileToken) {
+      setError('请先完成人机验证');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -79,7 +88,7 @@ export default function RegisterPage() {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, turnstileToken }),
       });
 
       const data = await response.json();
@@ -260,6 +269,25 @@ export default function RegisterPage() {
             />
           </div>
 
+          {/* Cloudflare Turnstile 人机验证 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              人机验证
+            </label>
+            {TURNSTILE_SITE_KEY ? (
+              <Turnstile
+                siteKey={TURNSTILE_SITE_KEY}
+                onVerify={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+              />
+            ) : (
+              <p className="text-sm text-red-600 dark:text-red-400">
+                Turnstile 未配置（缺少 NEXT_PUBLIC_TURNSTILE_SITE_KEY）
+              </p>
+            )}
+          </div>
+
           {/* 错误提示 */}
           {error && (
             <div className="flex items-start gap-2 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-900 rounded-lg">
@@ -270,7 +298,7 @@ export default function RegisterPage() {
 
           <Button
             type="submit"
-            disabled={loading}
+            disabled={loading || !turnstileToken}
             className="w-full bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white font-medium py-6 text-lg"
           >
             {loading ? (

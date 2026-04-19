@@ -3,16 +3,29 @@ import bcrypt from "bcrypt";
 import { db } from "@/lib/db";
 import { users } from "@/storage/database/shared/schema";
 import { eq } from "drizzle-orm";
+import { verifyTurnstileToken } from "@/server/turnstile";
 
 const SALT_ROUNDS = 10;
 
 export async function POST(request: NextRequest) {
   try {
-    const { username, password } = await request.json();
+    const { username, password, turnstileToken } = await request.json();
 
     if (!username || !password) {
       return NextResponse.json(
         { error: "用户名和密码不能为空" },
+        { status: 400 }
+      );
+    }
+
+    const remoteip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      undefined;
+    const verifyResult = await verifyTurnstileToken(turnstileToken, remoteip);
+    if (!verifyResult.success) {
+      console.warn("Turnstile 校验失败:", verifyResult.errors);
+      return NextResponse.json(
+        { error: "人机验证失败，请刷新后重试", code: "TURNSTILE_FAILED" },
         { status: 400 }
       );
     }
