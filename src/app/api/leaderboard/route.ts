@@ -1,20 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { Pool } from 'pg'
+import { NextResponse } from 'next/server'
+import { db } from '@/lib/db'
 import { gameRecords, users } from '@/storage/database/shared/schema'
 import { desc, eq } from 'drizzle-orm'
 
-const pool = new Pool({
-  connectionString: process.env.COZE_DATABASE_URL,
-})
-
-const db = drizzle(pool)
-
-// 获取排行榜数据
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    // 查询每个用户的最高分记录
-    // 使用子查询获取每个用户的最高分记录ID
     const allRecords = await db
       .select({
         id: gameRecords.id,
@@ -27,10 +17,9 @@ export async function GET(request: NextRequest) {
       })
       .from(gameRecords)
       .leftJoin(users, eq(gameRecords.userId, users.id))
-      .where(eq(gameRecords.result, 'won')) // 只统计成功的游戏
+      .where(eq(gameRecords.result, 'won'))
       .orderBy(desc(gameRecords.finalScore))
 
-    // 去重：每个用户只保留最高分的一条记录
     const userBestScores = new Map<number, typeof allRecords[0]>()
     for (const record of allRecords) {
       if (!userBestScores.has(record.userId)) {
@@ -38,7 +27,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 转换为数组并排序
     const leaderboard = Array.from(userBestScores.values())
       .sort((a, b) => b.finalScore - a.finalScore)
       .slice(0, 20)

@@ -1,20 +1,22 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { db } from "@/lib/db";
+import { blogPosts } from "@/storage/database/shared/schema";
+import { desc } from "drizzle-orm";
 
 export async function GET() {
   try {
-    const client = getSupabaseClient();
+    const posts = await db
+      .select({
+        id: blogPosts.id,
+        title: blogPosts.title,
+        slug: blogPosts.slug,
+        summary: blogPosts.summary,
+        createdAt: blogPosts.createdAt,
+      })
+      .from(blogPosts)
+      .orderBy(desc(blogPosts.createdAt));
 
-    const { data, error } = await client
-      .from("blog_posts")
-      .select("id, title, slug, summary, created_at")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      throw new Error(`查询失败: ${error.message}`);
-    }
-
-    return NextResponse.json({ posts: data || [] });
+    return NextResponse.json({ posts });
   } catch (error) {
     console.error("获取文章列表失败:", error);
     const errorMessage = error instanceof Error ? error.message : "未知错误";

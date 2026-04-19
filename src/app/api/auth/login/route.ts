@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcrypt";
-import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { db } from "@/lib/db";
+import { users } from "@/storage/database/shared/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   try {
     const { username, password } = await request.json();
 
-    // 验证输入
     if (!username || !password) {
       return NextResponse.json(
         { error: "用户名和密码不能为空" },
@@ -14,18 +15,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = getSupabaseClient();
-
-    // 查找用户
-    const { data: user, error: selectError } = await client
-      .from("users")
-      .select("*")
-      .eq("username", username)
-      .maybeSingle();
-
-    if (selectError) {
-      throw new Error(`查询用户失败: ${selectError.message}`);
-    }
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
 
     if (!user) {
       return NextResponse.json(
@@ -34,7 +28,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 验证密码
     const isValidPassword = await bcrypt.compare(password, user.password);
 
     if (!isValidPassword) {
@@ -44,32 +37,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 设置会话 cookie
     const response = NextResponse.json({
       success: true,
       message: "登录成功",
-      user: {
-        id: user.id,
-        username: user.username,
-      },
+      user: { id: user.id, username: user.username },
     });
 
     response.cookies.set("user_id", String(user.id), {
-      httpOnly: false, // 改为非 httpOnly 以提高兼容性
-      secure: false, // 沙箱环境兼容
+      httpOnly: false,
+      secure: false,
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 天
+      maxAge: 60 * 60 * 24 * 7,
       path: "/",
-      domain: undefined, // 自动使用当前域名
+      domain: undefined,
     });
 
     response.cookies.set("username", username, {
       httpOnly: false,
-      secure: false, // 沙箱环境兼容
+      secure: false,
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 天
+      maxAge: 60 * 60 * 24 * 7,
       path: "/",
-      domain: undefined, // 自动使用当前域名
+      domain: undefined,
     });
 
     return response;

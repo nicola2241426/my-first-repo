@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { db } from "@/lib/db";
+import { blogPosts } from "@/storage/database/shared/schema";
+import { eq } from "drizzle-orm";
 
 export async function GET(
   request: NextRequest,
@@ -7,26 +9,21 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
-    const client = getSupabaseClient();
 
-    const { data, error } = await client
-      .from("blog_posts")
-      .select("*")
-      .eq("slug", slug)
-      .maybeSingle();
+    const [post] = await db
+      .select()
+      .from(blogPosts)
+      .where(eq(blogPosts.slug, slug))
+      .limit(1);
 
-    if (error) {
-      throw new Error(`查询失败: ${error.message}`);
-    }
-
-    if (!data) {
+    if (!post) {
       return NextResponse.json(
         { error: "文章未找到" },
         { status: 404 }
       );
     }
 
-    return NextResponse.json({ post: data });
+    return NextResponse.json({ post });
   } catch (error) {
     console.error("获取文章详情失败:", error);
     const errorMessage = error instanceof Error ? error.message : "未知错误";

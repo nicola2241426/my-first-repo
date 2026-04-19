@@ -1,18 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config } from "coze-coding-dev-sdk";
-import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { NextRequest, NextResponse } from 'next/server';
+import { callZhipuLLM } from '@/server/ai/zhipu-llm';
+import { toApiErrorResponse } from '@/server/ai/errors';
+import { db } from '@/lib/db';
+import { blogPosts } from '@/storage/database/shared/schema';
 
 export async function POST(request: NextRequest) {
   try {
     const { topic } = await request.json();
 
     if (!topic) {
-      return NextResponse.json({ error: "请提供文章主题" }, { status: 400 });
+      return NextResponse.json({ error: '请提供文章主题' }, { status: 400 });
     }
-
-    // 调用 LLM 生成文章
-    const config = new Config();
-    const client = new LLMClient(config);
 
     const systemPrompt = `你是一个恋爱心理学专家和幽默的恋爱博主。你的写作风格轻松幽默、接地气，像朋友一样跟读者聊天。
 请根据给定的主题写一篇 300-500 字的文章。
@@ -29,62 +27,38 @@ export async function POST(request: NextRequest) {
 - 正文段落之间空一行
 - 可以用简单的列表格式（1. 2. 3.）来列举要点`;
 
-    const messages = [
-      { role: "system" as const, content: systemPrompt },
-      {
-        role: "user" as const,
-        content: `请以"${topic}"为主题，写一篇轻松幽默的恋爱建议文章，字数 300-500 字。`,
-      },
-    ];
+    const llmResult = await callZhipuLLM(
+      [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: `请以"${topic}"为主题，写一篇轻松幽默的恋爱建议文章，字数 300-500 字。`,
+        },
+      ],
+      { temperature: 0.8 },
+      'generate-article',
+    );
 
-    const response = await client.invoke(messages, {
-      model: "doubao-seed-1-8-251228",
-      temperature: 0.8,
-    });
-
-    // 解析响应，提取标题和内容
-    const content = response.content.trim();
-    const lines = content.split("\n");
+    const content = llmResult.content.trim();
+    const lines = content.split('\n');
     const title = lines[0].trim();
-    const body = lines.slice(1).join("\n").trim();
-
-    // 生成摘要（取前 100 字）
-    const summary = body.slice(0, 100).trim() + (body.length > 100 ? "..." : "");
-
-    // 生成 slug
+    const body = lines.slice(1).join('\n').trim();
+    const summary = body.slice(0, 100).trim() + (body.length > 100 ? '...' : '');
     const slug = title
       .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-")
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
       .substring(0, 50);
 
-    // 保存到数据库
-    const supabase = getSupabaseClient();
-    const { data: insertedData, error: insertError } = await supabase
-      .from("blog_posts")
-      .insert({
-        title,
-        slug,
-        summary,
-        content: body,
-      })
-      .select()
-      .single();
+    const [insertedPost] = await db
+      .insert(blogPosts)
+      .values({ title, slug, summary, content: body })
+      .returning();
 
-    if (insertError) {
-      throw new Error(`保存到数据库失败: ${insertError.message}`);
-    }
-
-    return NextResponse.json({
-      success: true,
-      post: insertedData,
-    });
+    return NextResponse.json({ success: true, post: insertedPost });
   } catch (error) {
-    console.error("生成文章失败:", error);
-    const errorMessage = error instanceof Error ? error.message : "未知错误";
-    return NextResponse.json(
-      { error: `生成文章失败: ${errorMessage}` },
-      { status: 500 }
-    );
+    console.error('生成文章失败:', error);
+    const { error: msg } = toApiErrorResponse(error);
+    return NextResponse.json({ error: `生成文章失败: ${msg}` }, { status: 500 });
   }
 }

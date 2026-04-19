@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import { callZhipuLLM } from '@/server/ai/zhipu-llm';
+import { toApiErrorResponse } from '@/server/ai/errors';
 
 interface ReviewRequest {
   scenario: {
@@ -8,7 +9,7 @@ interface ReviewRequest {
   };
   currentWave: number;
   moodScore: number;
-  roundReasons: string[]; // 本波段3轮的判断理由
+  roundReasons: string[];
 }
 
 export async function POST(request: NextRequest) {
@@ -16,11 +17,6 @@ export async function POST(request: NextRequest) {
     const { scenario, currentWave, moodScore, roundReasons }: ReviewRequest =
       await request.json();
 
-    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-    const config = new Config();
-    const client = new LLMClient(config, customHeaders);
-
-    // 构建复盘提示词
     const systemPrompt = `你是一个情感咨询师，正在对用户刚刚完成的一轮对话进行复盘分析。
 
 **场景背景**：${scenario.description}
@@ -66,49 +62,42 @@ ${roundReasons.map((r, i) => `  第${i + 1}轮：${r}`).join('\n')}
 - 不要说教，要用"如果这样做会更好"的方式
 - nextStatus 根据情绪值判断：≥80返回"won"，否则返回"next_wave"`;
 
-    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt }
-    ];
-
-    const response = await client.invoke(messages, {
-      model: 'doubao-seed-1-8-251228',
-      temperature: 0.7,
-      thinking: 'disabled',
-      caching: 'disabled'
-    });
+    const llmResult = await callZhipuLLM(
+      [{ role: 'system', content: systemPrompt }],
+      { temperature: 0.7 },
+      'review',
+    );
 
     let parsedResponse;
-    const content = response.content;
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
+    const content = llmResult.content;
+    const jsonMatch =
+      content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
       try {
         let jsonStr = jsonMatch[1] || jsonMatch[0];
-
-        // 修复：移除数字前面的 + 号（JSON 标准不支持）
         jsonStr = jsonStr.replace(/:\s*\+(\d+)/g, ': $1');
-
-        // 修复：移除尾随逗号
         jsonStr = jsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
 
         console.log('复盘 JSON:', jsonStr.substring(0, 200) + '...');
-
         parsedResponse = JSON.parse(jsonStr);
 
-        // 验证必需字段
-        if (!parsedResponse.summary || !parsedResponse.mistakes || !parsedResponse.goodPoints || !parsedResponse.advice) {
+        if (
+          !parsedResponse.summary ||
+          !parsedResponse.mistakes ||
+          !parsedResponse.goodPoints ||
+          !parsedResponse.advice
+        ) {
           throw new Error('缺少必需字段');
         }
-
       } catch (e) {
-        console.error('JSON 解析失败:', e);
-        console.error('原始内容:', content);
+        console.error('JSON 解析失败:', e, '原始内容:', content);
         parsedResponse = {
           summary: '本波段已结束',
           mistakes: [],
           goodPoints: [],
           advice: '继续加油',
-          nextStatus: moodScore >= 80 ? 'won' : 'next_wave'
+          nextStatus: moodScore >= 80 ? 'won' : 'next_wave',
         };
       }
     } else {
@@ -117,7 +106,7 @@ ${roundReasons.map((r, i) => `  第${i + 1}轮：${r}`).join('\n')}
         mistakes: [],
         goodPoints: [],
         advice: '继续加油',
-        nextStatus: moodScore >= 80 ? 'won' : 'next_wave'
+        nextStatus: moodScore >= 80 ? 'won' : 'next_wave',
       };
     }
 
@@ -126,25 +115,17 @@ ${roundReasons.map((r, i) => `  第${i + 1}轮：${r}`).join('\n')}
         success: true,
         data: {
           ...parsedResponse,
-          nextStatus: moodScore >= 80 ? 'won' : 'next_wave'
-        }
+          nextStatus: moodScore >= 80 ? 'won' : 'next_wave',
+        },
       }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      }
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   } catch (error) {
     console.error('复盘处理失败:', error);
+    const { error: msg, code } = toApiErrorResponse(error);
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: '复盘处理失败'
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      }
+      JSON.stringify({ success: false, error: msg, code }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }
 }

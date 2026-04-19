@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { Pool } from 'pg'
+import { db } from '@/lib/db'
 import { gameRecords } from '@/storage/database/shared/schema'
 import { eq, desc } from 'drizzle-orm'
 
-const pool = new Pool({
-  connectionString: process.env.COZE_DATABASE_URL,
-})
-
-const db = drizzle(pool)
-
-// 获取游戏记录列表
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -34,7 +26,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// 保存游戏记录
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()

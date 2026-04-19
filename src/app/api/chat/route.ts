@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { LLMClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
+import { callZhipuLLM } from '@/server/ai/zhipu-llm';
+import { toApiErrorResponse } from '@/server/ai/errors';
 
 interface ChatRequest {
   message: string;
@@ -25,6 +26,7 @@ interface ChatResponse {
     waveStatus: 'continue' | 'review' | 'won' | 'lost';
   };
   error?: string;
+  code?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -36,22 +38,15 @@ export async function POST(request: NextRequest) {
       currentRound,
       scenario,
       conversationHistory,
-      playerGender = 'boyfriend'
+      playerGender = 'boyfriend',
     }: ChatRequest = await request.json();
 
-    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-    const config = new Config();
-    const client = new LLMClient(config, customHeaders);
-
-    // 判断是否需要波段结束总结
     const isWaveEnd = currentRound === 3;
+    const roleDescription =
+      playerGender === 'boyfriend'
+        ? '你现在扮演一个生气的女友角色'
+        : '你现在扮演一个生气的男友角色';
 
-    // 根据性别设置角色
-    const roleDescription = playerGender === 'boyfriend' 
-      ? '你现在扮演一个生气的女友角色' 
-      : '你现在扮演一个生气的男友角色';
-
-    // 构建系统提示词
     const systemPrompt = `${roleDescription}。场景背景：${scenario.description}
 
 **游戏机制说明**：
@@ -103,9 +98,8 @@ export async function POST(request: NextRequest) {
 - reason 字段必须简洁明确，用于复盘时向用户展示
 - ${isWaveEnd ? '本轮结束后将进入复盘，请给出一个适合波段结束的回应' : ''}`;
 
-    // 构建消息数组
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt }
+      { role: 'system', content: systemPrompt },
     ];
 
     conversationHistory.forEach((msg) => {
@@ -116,83 +110,48 @@ export async function POST(request: NextRequest) {
 
     messages.push({ role: 'user', content: message });
 
-    // 调用 LLM
-    const response = await client.invoke(messages, {
-      model: 'doubao-seed-1-8-251228',
-      temperature: 0.8,
-      thinking: 'disabled',
-      caching: 'disabled'
-    });
+    const llmResult = await callZhipuLLM(messages, { temperature: 0.8 }, 'chat');
 
-    // 解析响应
-    let parsedResponse;
-    const content = response.content;
-
-    // 尝试提取 JSON
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
+    // 解析 JSON 响应
+    let parsedResponse: { reply: string; moodChange: number; reason: string } | null = null;
+    const content = llmResult.content;
+    const jsonMatch =
+      content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
       try {
         let jsonStr = jsonMatch[1] || jsonMatch[0];
-
-        // 修复1：移除数字前面的 + 号（JSON 标准不支持）
         jsonStr = jsonStr.replace(/:\s*\+(\d+)/g, ': $1');
-
-        // 修复2：修复尾随逗号（如 { "a": 1, }）
         jsonStr = jsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
 
-        // 修复3：修复未转义的引号
-        jsonStr = jsonStr.replace(/"([^"]*)"/g, (match) => {
-          if (match.includes('\\') && !match.includes('\\"')) {
-            return match.replace(/"/g, '\\"');
-          }
-          return match;
-        });
-
         console.log('尝试解析 JSON:', jsonStr.substring(0, 200) + '...');
-
         parsedResponse = JSON.parse(jsonStr);
 
-        // 验证必需字段
-        if (!parsedResponse.reply || parsedResponse.moodChange === undefined || !parsedResponse.reason) {
+        if (
+          !parsedResponse?.reply ||
+          parsedResponse.moodChange === undefined ||
+          !parsedResponse.reason
+        ) {
           throw new Error('缺少必需字段');
         }
 
-        // 确保 moodChange 是数字
         parsedResponse.moodChange = Number(parsedResponse.moodChange);
-
       } catch (e) {
-        console.error('JSON 解析失败:', e);
-        console.error('原始内容:', content);
-        console.error('提取的 JSON:', jsonMatch[1] || jsonMatch[0]);
-
-        // 解析失败时的兜底逻辑
-        parsedResponse = {
-          reply: content,
-          moodChange: 0,
-          reason: 'AI 评分失败，已使用默认值'
-        };
+        console.error('JSON 解析失败:', e, '原始内容:', content);
+        parsedResponse = { reply: content, moodChange: 0, reason: 'AI 评分失败，已使用默认值' };
       }
     } else {
-      parsedResponse = {
-        reply: content,
-        moodChange: 0,
-        reason: 'AI 评分失败'
-      };
+      parsedResponse = { reply: content, moodChange: 0, reason: 'AI 评分失败' };
     }
 
-    // 计算新情绪值
     const newMoodScore = Math.max(0, Math.min(100, moodScore + parsedResponse.moodChange));
 
-    // 判断游戏状态
     let waveStatus: 'continue' | 'review' | 'won' | 'lost' = 'continue';
-
     if (newMoodScore <= 0) {
       waveStatus = 'lost';
     } else if (newMoodScore >= 80) {
       waveStatus = 'won';
     } else if (currentRound === 3) {
-      // 本波段结束，需要复盘
       waveStatus = 'review';
     }
 
@@ -203,26 +162,20 @@ export async function POST(request: NextRequest) {
         moodScore: newMoodScore,
         moodChange: parsedResponse.moodChange,
         reason: parsedResponse.reason,
-        waveStatus: waveStatus
-      }
+        waveStatus,
+      },
     };
 
     return new Response(JSON.stringify(responseData), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
     });
-
   } catch (error) {
     console.error('对话处理失败:', error);
+    const { error: msg, code } = toApiErrorResponse(error);
     return new Response(
-      JSON.stringify({
-        success: false,
-        error: '对话处理失败'
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      }
+      JSON.stringify({ success: false, error: msg, code } satisfies ChatResponse),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }
 }
