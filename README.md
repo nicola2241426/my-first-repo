@@ -1,53 +1,48 @@
 # projects
 
-这是一个基于 [Next.js 16](https://nextjs.org) + [shadcn/ui](https://ui.shadcn.com) 的全栈应用项目，由扣子编程 CLI 创建。
+这是一个基于 [Next.js 16](https://nextjs.org) + [shadcn/ui](https://ui.shadcn.com) 的全栈应用项目，现已整理为标准的 Next.js 部署方式，可直接部署到 Vercel。
 
 ## 快速开始
 
 ### 启动开发服务器
 
 ```bash
-coze dev
+pnpm dev
 ```
 
-启动后，在浏览器中打开 [http://localhost:5000](http://localhost:5000) 查看应用。
+启动后，在浏览器中打开 [http://localhost:3000](http://localhost:3000) 查看应用。
 
 开发服务器支持热更新，修改代码后页面会自动刷新。
 
 ### 构建生产版本
 
 ```bash
-coze build
+pnpm build
 ```
 
 ### 启动生产服务器
 
 ```bash
-coze start
+pnpm start
 ```
 
 ## 项目结构
 
-```
+```text
 src/
 ├── app/                      # Next.js App Router 目录
-│   ├── layout.tsx           # 根布局组件
-│   ├── page.tsx             # 首页
-│   ├── globals.css          # 全局样式（包含 shadcn 主题变量）
-│   └── [route]/             # 其他路由页面
-├── components/              # React 组件目录
-│   └── ui/                  # shadcn/ui 基础组件（优先使用）
+│   ├── layout.tsx            # 根布局组件
+│   ├── page.tsx              # 首页
+│   ├── globals.css           # 全局样式（包含 shadcn 主题变量）
+│   └── [route]/              # 其他路由页面
+├── components/               # React 组件目录
+│   └── ui/                   # shadcn/ui 基础组件（优先使用）
 │       ├── button.tsx
 │       ├── card.tsx
 │       └── ...
-├── lib/                     # 工具函数库
-│   └── utils.ts            # cn() 等工具函数
-└── hooks/                   # 自定义 React Hooks（可选）
-
-server/
-├── index.ts                 # 自定义服务器入口
-├── tsconfig.json           # Server TypeScript 配置
-└── dist/                    # 编译输出目录（自动生成）
+├── lib/                      # 工具函数库
+│   └── utils.ts              # cn() 等工具函数
+└── hooks/                    # 自定义 React Hooks（可选）
 ```
 
 ## 核心开发规范
