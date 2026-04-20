@@ -42,6 +42,7 @@ export const gameRecords = pgTable("game_records", {
 	scenario: varchar({ length: 200 }).notNull(),
 	finalScore: integer("final_score").notNull(),
 	result: varchar({ length: 20 }).notNull(),
+	reportKey: varchar("report_key", { length: 255 }),
 	playedAt: timestamp("played_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("game_records_user_id_idx").on(table.userId),

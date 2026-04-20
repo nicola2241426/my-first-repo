@@ -26,7 +26,12 @@ export function logAiSuccess(meta: AiLogMeta, startTs: number, extra?: Record<st
 export function logAiError(meta: AiLogMeta, startTs: number, err: unknown): void {
   const duration = Date.now() - startTs;
   const summary = err instanceof Error ? err.message : String(err);
+  const raw =
+    err && typeof err === 'object' && 'raw' in err
+      ? (err as { raw: unknown }).raw
+      : undefined;
   console.error(
     `[AI][${meta.provider}][${meta.task}] 失败 耗时=${duration}ms 错误="${summary}"`,
+    raw ? `原始响应=${JSON.stringify(raw)}` : '',
   );
 }

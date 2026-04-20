@@ -63,7 +63,10 @@ ${roundReasons.map((r, i) => `  第${i + 1}轮：${r}`).join('\n')}
 - nextStatus 根据情绪值判断：≥80返回"won"，否则返回"next_wave"`;
 
     const llmResult = await callZhipuLLM(
-      [{ role: 'system', content: systemPrompt }],
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: '请基于以上信息生成本波段复盘，严格按 JSON 格式返回。' },
+      ],
       { temperature: 0.7 },
       'review',
     );

@@ -1,0 +1,1 @@
+ALTER TABLE "game_records" ADD COLUMN "report_key" varchar(255);

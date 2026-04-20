@@ -25,6 +25,7 @@ import {
   LogOut,
   History
 } from 'lucide-react';
+import { ReportPanel } from '@/components/report-panel';
 
 interface Scenario {
   id: number;
@@ -84,6 +85,7 @@ export default function CoaxGame() {
   const [user, setUser] = useState<{ id: number; username: string } | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [gameRecordSaved, setGameRecordSaved] = useState(false);
+  const [currentRecordId, setCurrentRecordId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -366,6 +368,7 @@ export default function CoaxGame() {
     setInputMessage('');
     setShowWarning(false);
     setGameRecordSaved(false);
+    setCurrentRecordId(null);
   };
 
   const startNextWave = () => {
@@ -520,6 +523,9 @@ export default function CoaxGame() {
       const data = await response.json();
       if (data.success) {
         setGameRecordSaved(true);
+        if (data.record?.id) {
+          setCurrentRecordId(data.record.id);
+        }
         console.log('游戏记录已保存');
       }
     } catch (error) {
@@ -1300,7 +1306,26 @@ export default function CoaxGame() {
               </p>
             </div>
           )}
-          
+
+          {user && gameRecordSaved && selectedScenario && (
+            <div className="mb-6">
+              <ReportPanel
+                userId={user.id}
+                recordId={currentRecordId}
+                scenario={selectedScenario}
+                playerGender={playerGender}
+                finalScore={currentMood}
+                result="won"
+                messages={messages.slice(1).map((m) => ({
+                  role: m.role,
+                  content: m.content,
+                  reason: m.reason,
+                  moodChange: m.moodChange,
+                }))}
+              />
+            </div>
+          )}
+
           <div className="space-y-3">
             <Button
               onClick={resetGame}
@@ -1386,7 +1411,26 @@ export default function CoaxGame() {
               </p>
             </div>
           )}
-          
+
+          {user && gameRecordSaved && selectedScenario && (
+            <div className="mb-6">
+              <ReportPanel
+                userId={user.id}
+                recordId={currentRecordId}
+                scenario={selectedScenario}
+                playerGender={playerGender}
+                finalScore={currentMood}
+                result="lost"
+                messages={messages.slice(1).map((m) => ({
+                  role: m.role,
+                  content: m.content,
+                  reason: m.reason,
+                  moodChange: m.moodChange,
+                }))}
+              />
+            </div>
+          )}
+
           <div className="space-y-3">
             <Button
               onClick={resetGame}

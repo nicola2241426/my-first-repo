@@ -13,8 +13,12 @@ import {
   LogOut,
   ArrowLeft,
   Calendar,
-  Target
+  Target,
+  Sparkles,
+  ChevronDown,
+  Loader2
 } from 'lucide-react';
+import { ReportView, type ReportContent } from '@/components/report-panel';
 
 interface GameRecord {
   id: number;
@@ -22,6 +26,7 @@ interface GameRecord {
   scenario: string;
   finalScore: number;
   result: string;
+  reportKey: string | null;
   playedAt: string;
 }
 
@@ -35,6 +40,41 @@ export default function ProfilePage() {
   const [user, setUser] = useState<User | null>(null);
   const [records, setRecords] = useState<GameRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [reportCache, setReportCache] = useState<Record<number, ReportContent>>({});
+  const [reportLoadingId, setReportLoadingId] = useState<number | null>(null);
+  const [reportError, setReportError] = useState<{ id: number; msg: string } | null>(null);
+
+  const handleToggleReport = async (record: GameRecord) => {
+    if (expandedId === record.id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(record.id);
+    setReportError(null);
+
+    if (reportCache[record.id] || !record.reportKey || !user) return;
+
+    setReportLoadingId(record.id);
+    try {
+      const res = await fetch(
+        `/api/game-records/${record.id}/report?userId=${user.id}`,
+        { credentials: 'include' },
+      );
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '加载报告失败');
+      }
+      setReportCache((prev) => ({ ...prev, [record.id]: data.data.report }));
+    } catch (err) {
+      setReportError({
+        id: record.id,
+        msg: err instanceof Error ? err.message : '加载报告失败',
+      });
+    } finally {
+      setReportLoadingId(null);
+    }
+  };
 
   useEffect(() => {
     // 从 localStorage 读取用户信息
@@ -302,36 +342,85 @@ export default function ProfilePage() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {records.map((record) => (
-              <Card
-                key={record.id}
-                className="p-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-2 border-purple-100 dark:border-purple-900 hover:border-purple-300 dark:hover:border-purple-700 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    {getResultIcon(record.result)}
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white">
-                        {record.scenario}
-                      </h3>
-                      <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        <Calendar className="w-3 h-3" />
-                        {formatDate(record.playedAt)}
+            {records.map((record) => {
+              const isExpanded = expandedId === record.id;
+              const hasReport = !!record.reportKey;
+              const cached = reportCache[record.id];
+              const isLoading = reportLoadingId === record.id;
+              const errMsg =
+                reportError?.id === record.id ? reportError.msg : null;
+
+              return (
+                <Card
+                  key={record.id}
+                  className="p-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-2 border-purple-100 dark:border-purple-900 hover:border-purple-300 dark:hover:border-purple-700 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      {getResultIcon(record.result)}
+                      <div>
+                        <h3 className="font-semibold text-gray-900 dark:text-white">
+                          {record.scenario}
+                        </h3>
+                        <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
+                          <Calendar className="w-3 h-3" />
+                          {formatDate(record.playedAt)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className={`text-xl font-bold ${getScoreColor(record.finalScore)}`}>
+                          {record.finalScore}分
+                        </p>
+                        {getResultBadge(record.result)}
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className={`text-xl font-bold ${getScoreColor(record.finalScore)}`}>
-                        {record.finalScore}分
-                      </p>
-                      {getResultBadge(record.result)}
+
+                  {hasReport && (
+                    <div className="mt-3 pt-3 border-t border-purple-100 dark:border-purple-900/50">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleReport(record)}
+                        className="text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 w-full justify-between"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Sparkles className="w-4 h-4" />
+                          {isExpanded ? '收起解读报告' : '查看解读报告'}
+                        </span>
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </Button>
+
+                      {isExpanded && (
+                        <div className="mt-3">
+                          {isLoading && (
+                            <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-500">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              加载报告中…
+                            </div>
+                          )}
+                          {errMsg && !isLoading && (
+                            <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 rounded">
+                              {errMsg}
+                            </div>
+                          )}
+                          {cached && !isLoading && (
+                            <div className="p-4 rounded-lg bg-gradient-to-br from-purple-50/50 to-pink-50/50 dark:from-purple-900/10 dark:to-pink-900/10 border border-purple-100 dark:border-purple-900/50">
+                              <ReportView report={cached} />
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                  )}
+                </Card>
+              );
+            })}
           </div>
         )}
       </div>
