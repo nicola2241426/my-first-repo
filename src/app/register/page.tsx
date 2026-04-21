@@ -14,6 +14,7 @@ const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 export default function RegisterPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -54,13 +55,18 @@ export default function RegisterPage() {
     setError(null);
 
     // 验证输入
-    if (!username || !password || !confirmPassword) {
+    if (!username || !email || !password || !confirmPassword) {
       setError('请填写所有字段');
       return;
     }
 
     if (username.length < 3) {
       setError('用户名至少需要 3 个字符');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('邮箱格式不正确');
       return;
     }
 
@@ -88,7 +94,7 @@ export default function RegisterPage() {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ username, password, turnstileToken }),
+        body: JSON.stringify({ username, email, password, turnstileToken }),
       });
 
       const data = await response.json();
@@ -237,6 +243,21 @@ export default function RegisterPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
+              className="border-2 border-pink-200 dark:border-pink-900 focus:border-pink-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              邮箱
+            </label>
+            <Input
+              type="email"
+              placeholder="用来接收欢迎信和每日情书"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              autoComplete="email"
               className="border-2 border-pink-200 dark:border-pink-900 focus:border-pink-500"
             />
           </div>

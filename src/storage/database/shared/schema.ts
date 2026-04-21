@@ -31,6 +31,7 @@ export const users = pgTable("users", {
 	id: serial().primaryKey().notNull(),
 	username: varchar({ length: 50 }).notNull(),
 	password: varchar({ length: 255 }).notNull(),
+	email: varchar({ length: 255 }),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	unique("users_username_unique").on(table.username),

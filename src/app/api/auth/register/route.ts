@@ -4,16 +4,25 @@ import { db } from "@/lib/db";
 import { users } from "@/storage/database/shared/schema";
 import { eq } from "drizzle-orm";
 import { verifyTurnstileToken } from "@/server/turnstile";
+import { sendWelcomeEmail } from "@/server/email/welcome";
 
 const SALT_ROUNDS = 10;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest) {
   try {
-    const { username, password, turnstileToken } = await request.json();
+    const { username, password, email, turnstileToken } = await request.json();
 
-    if (!username || !password) {
+    if (!username || !password || !email) {
       return NextResponse.json(
-        { error: "用户名和密码不能为空" },
+        { error: "用户名、密码、邮箱都不能为空" },
+        { status: 400 }
+      );
+    }
+
+    if (!EMAIL_REGEX.test(String(email))) {
+      return NextResponse.json(
+        { error: "邮箱格式不正确" },
         { status: 400 }
       );
     }
@@ -61,8 +70,11 @@ export async function POST(request: NextRequest) {
 
     const [newUser] = await db
       .insert(users)
-      .values({ username, password: hashedPassword })
-      .returning({ id: users.id, username: users.username });
+      .values({ username, password: hashedPassword, email })
+      .returning({ id: users.id, username: users.username, email: users.email });
+
+    // 异步发欢迎邮件，失败不影响注册主流程
+    void sendWelcomeEmail({ to: email, username });
 
     const response = NextResponse.json({
       success: true,
