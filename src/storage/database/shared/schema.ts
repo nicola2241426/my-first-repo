@@ -37,6 +37,16 @@ export const users = pgTable("users", {
 	unique("users_username_unique").on(table.username),
 ]);
 
+export const dailyLetters = pgTable("daily_letters", {
+	id: serial().primaryKey().notNull(),
+	date: varchar({ length: 10 }).notNull(),
+	body: text().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("daily_letters_date_unique").on(table.date),
+	index("daily_letters_date_idx").on(table.date),
+]);
+
 export const gameRecords = pgTable("game_records", {
 	id: serial().primaryKey().notNull(),
 	userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

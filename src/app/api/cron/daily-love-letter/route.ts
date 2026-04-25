@@ -1,20 +1,22 @@
 /**
- * 每日情书定时任务
+ * Cron - 发送今日情书
  *
- * 触发方:cron-job.org(或任何外部定时调用方)
- * 推荐配置:每天北京时间 09:00 触发一次
+ * 触发方：cron-job.org（建议每天 09:00 北京时间）
+ * 行为：
+ *   1. 从 daily_letters 表读取今日情书（由 prepare 路由提前生成）
+ *   2. 若缓存缺失，则降级实时生成（慢 ~12s，可能在 Hobby 计划上超时）
+ *   3. 并发（默认 3 路）发送给所有有 email 的用户
  *
- * 请求头必须包含 Authorization: Bearer <CRON_SECRET>
- * 若环境变量未配置 CRON_SECRET,则不做鉴权(仅建议在本地开发使用)
- *
- * 支持 GET / POST(cron-job.org 默认用 GET);
- * 支持 ?limit=N 调试参数,只给前 N 个用户发,便于自测
+ * 鉴权：Authorization: Bearer <CRON_SECRET>
+ * 调试：?limit=N 仅给前 N 个用户发
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { isNotNull } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { users } from '@/storage/database/shared/schema'
 import { sendDailyLoveLetter } from '@/server/email/daily-love-letter'
+import { getOrCreateTodayLetter } from '@/server/email/daily-letter-cache'
+import { verifyCronAuth } from '@/server/cron-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -31,22 +33,9 @@ interface ItemResult {
   error?: string
 }
 
-function verifyAuth(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    console.warn(
-      '[cron][daily-love-letter] 未配置 CRON_SECRET,任何人都能触发此接口',
-    )
-    return true
-  }
-  const header = request.headers.get('authorization') || ''
-  const token = header.replace(/^Bearer\s+/i, '').trim()
-  if (token && token === secret) return true
-  const queryToken = request.nextUrl.searchParams.get('secret')
-  return queryToken === secret
-}
-
 async function runJob(limit?: number) {
+  const letter = await getOrCreateTodayLetter()
+
   const rows = await db
     .select({
       id: users.id,
@@ -62,12 +51,15 @@ async function runJob(limit?: number) {
   const picked = typeof limit === 'number' ? targets.slice(0, limit) : targets
 
   const results: ItemResult[] = []
-
   for (let i = 0; i < picked.length; i += CONCURRENCY) {
     const chunk = picked.slice(i, i + CONCURRENCY)
     const settled = await Promise.allSettled(
       chunk.map((u) =>
-        sendDailyLoveLetter({ to: u.email, username: u.username }),
+        sendDailyLoveLetter({
+          to: u.email,
+          username: u.username,
+          body: letter.body,
+        }),
       ),
     )
     settled.forEach((r, idx) => {
@@ -103,11 +95,11 @@ async function runJob(limit?: number) {
     success: results.filter((r) => r.ok).length,
     failed: results.filter((r) => !r.ok).length,
   }
-  return { summary, results }
+  return { letter, summary, results }
 }
 
 async function handle(request: NextRequest) {
-  if (!verifyAuth(request)) {
+  if (!verifyCronAuth(request)) {
     return NextResponse.json(
       { ok: false, error: 'Unauthorized' },
       { status: 401 },
@@ -119,20 +111,22 @@ async function handle(request: NextRequest) {
 
   const startedAt = Date.now()
   try {
-    const { summary, results } = await runJob(limit)
+    const { letter, summary, results } = await runJob(limit)
     const duration = Date.now() - startedAt
     console.log(
-      `[cron][daily-love-letter] 完成 total=${summary.total} success=${summary.success} failed=${summary.failed} 耗时=${duration}ms`,
+      `[cron][send-letters] 完成 date=${letter.date} cached=${letter.cached} total=${summary.total} success=${summary.success} failed=${summary.failed} 耗时=${duration}ms`,
     )
     return NextResponse.json({
       ok: true,
       durationMs: duration,
+      date: letter.date,
+      cached: letter.cached,
       summary,
       results,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error(`[cron][daily-love-letter] 任务失败 错误=${message}`)
+    console.error(`[cron][send-letters] 任务失败 错误=${message}`)
     return NextResponse.json(
       { ok: false, error: message },
       { status: 500 },
